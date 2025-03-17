@@ -1,4 +1,4 @@
-```bash
+
 # histoWAS
 # Histopathological, proteomics association
 
@@ -18,4 +18,4 @@
 
 4. Results
    - The output from the demo will be saved in the `result` folder.
-```
+
