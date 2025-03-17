@@ -5,7 +5,7 @@ Histopathological, proteomics association
 ## Quick Start
 
 1. Environment Setup
-   - The file `env.txt` contains the environment configuration. Please use this file to set up all necessary dependencies.
+   - The file `environment.yml` contains the environment configuration. Please use this file to set up all necessary dependencies.
 
 2. Data Files
    - All required data files are located in the `data` folder.
