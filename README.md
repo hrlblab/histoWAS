@@ -24,10 +24,10 @@ Histopathological, proteomics association
 ### Example Plots
 
 #### 1. Manhattan Plot
-![Manhattan Plot](result/Manhattan_demo.png)
+<img src="result/Manhattan_demo.png" alt="Manhattan Plot" width="400"/>
 
 #### 2. Effect Size Plot
-![Effect Size Plot](result/EffectSize_demo.png)
+<img src="result/EffectSize_demo.png" alt="Effect Size Plot" width="400"/>
 
 #### 3. Volcano Plot
-![Volcano Plot](result/Volcano_demo.png)
+<img src="result/Volcano_demo.png" alt="Volcano Plot" width="400"/>
