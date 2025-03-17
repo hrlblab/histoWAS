@@ -1,6 +1,6 @@
 
 # histoWAS
-# Histopathological, proteomics association
+Histopathological, proteomics association
 
 ## Quick Start
 
