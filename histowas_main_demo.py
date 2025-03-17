@@ -66,5 +66,5 @@ threshold_value = 0.05
 plot_manhattan_feature(regressions_df, thresh=threshold_value, save="result/Manhattan_demo.png", save_format="png")
 
 
-# plot_effect_size_feature(regressions_df, thresh=threshold_value, save="result/EffectSize_demo.png", save_format="png")
-# plot_volcano_feature(regressions_df, save="result/Volcano_demo.png", save_format="png")
+plot_effect_size_feature(regressions_df, thresh=threshold_value, save="result/EffectSize_demo.png", save_format="png")
+plot_volcano_feature(regressions_df, save="result/Volcano_demo.png", save_format="png")
