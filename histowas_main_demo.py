@@ -3,11 +3,16 @@ from visualize.histowas_plot import *
 import pandas as pd
 import numpy as np
 
+import numpy as np
+import pandas as pd
+
+
 
 # 读取数据
 data = pd.read_csv('data/feature_demo.csv')
 # 对 DataFrame 的每一列使用 z-score 标准化
 data = (data - data.mean()) / data.std()
+
 
 outcome_col = 'Interstitial_Fibrosis'
 # id_col="Biopsy_ID_"
@@ -61,5 +66,5 @@ threshold_value = 0.05
 plot_manhattan_feature(regressions_df, thresh=threshold_value, save="result/Manhattan_demo.png", save_format="png")
 
 
-plot_effect_size_feature(regressions_df, thresh=threshold_value, save="result/EffectSize_demo.png", save_format="png")
-plot_volcano_feature(regressions_df, save="result/Volcano_demo.png", save_format="png")
+# plot_effect_size_feature(regressions_df, thresh=threshold_value, save="result/EffectSize_demo.png", save_format="png")
+# plot_volcano_feature(regressions_df, save="result/Volcano_demo.png", save_format="png")
