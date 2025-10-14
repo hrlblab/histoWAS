@@ -1,5 +1,5 @@
 from bin.whole_pipeline import *
-from visualize.histowas_plot import *
+from visualize.histowas_plot_category import *
 import pandas as pd
 import numpy as np
 
@@ -51,6 +51,21 @@ regressions_df, model_equation = run_featurewas(fm, demo, feature_cols, reg_type
                                                  phe_thresh=5, canonical=False, force_linear=True)
 
 
+
+# 定义Spatial特征的关键词
+spatial_keywords = ['ANN', 'g_function', 'K_function', 'L_function']
+
+# 定义一个函数来判断特征类别
+def get_feature_category(feature_name):
+    if any(keyword in feature_name for keyword in spatial_keywords):
+        return 'Spatial'
+    return 'Pathomics'
+
+# 为regressions_df添加一个新的'Category'列
+# 注意：regressions_df的索引应该就是特征名，如果不是，请根据实际情况调整
+regressions_df['Category'] = regressions_df['Feature'].map(get_feature_category)
+
+
 pvals = regressions_df["p-val"].values
 
 # 计算 Bonferroni 阈值
@@ -64,8 +79,19 @@ threshold_value = 0.05
 
 
 # 调用 plot_manhattan 时必须使用关键字参数 'thresh'
-plot_manhattan_feature(regressions_df, thresh=threshold_value, save="result/Manhattan_demo_topology.png", save_format="png")
+# 调用新的 plot_manhattan_with_categories
+plot_manhattan_feature_categorized(regressions_df,
+                               thresh=threshold_value,
+                               save="result/Manhattan_demo_topology_category.png",
+                               save_format="png")
 
+# 调用新的 plot_effect_size_with_categories
+plot_effect_size_feature_categorized(regressions_df,
+                                 thresh=threshold_value,
+                                 save="result/EffectSize_demo_topology_category.png",
+                                 save_format="png")
 
-plot_effect_size_feature(regressions_df, thresh=threshold_value, save="result/EffectSize_demo_topology.png", save_format="png")
-plot_volcano_feature(regressions_df, save="result/Volcano_demo_topology.png", save_format="png")
+# 调用新的 plot_volcano_with_categories
+plot_volcano_feature_categorized(regressions_df,
+                             save="result/Volcano_demo_topology_category.png",
+                             save_format="png")
