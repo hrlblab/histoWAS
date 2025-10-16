@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="pyphewas" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="make-patch" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="pyphewas" project-jdk-type="Python SDK" />
 </project>
