@@ -1016,7 +1016,7 @@ if __name__ == '__main__':
             all_wsi_hulls,
             ppm_object_type,
             ppm_covariate_name,
-            if_plot=True  # 默认关闭绘图
+            if_plot=False  # 默认关闭绘图
         )
 
 
