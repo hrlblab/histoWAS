@@ -1676,6 +1676,80 @@ def _calculate_ann(points):
     return ann_value
 
 
+def calculate_ann_index_features(combined_df: pd.DataFrame,
+                                 area_df: pd.DataFrame,
+                                 process_list: list) -> pd.DataFrame:
+    """
+    计算一个WSI内，指定对象的平均最近邻指数 (ANN Index / Clark-Evans Index)。
+    该指数通过观测到的ANN与CSR下的预期ANN的比率，对密度进行了归一化。
+
+
+    Args:
+        combined_df (pd.DataFrame): 包含一个病人所有WSI中标注信息的DataFrame。
+        area_df (pd.DataFrame): 包含每个WSI前景总面积的DataFrame。
+        process_list (list): 需要计算特征的对象类别, e.g., ['tubules'].
+
+    Returns:
+        pd.DataFrame: 每个WSI一行，包含ANN Index特征。
+    """
+
+    results_list = []
+
+    # 按 'wsi_id' 分组
+    grouped = combined_df.groupby('wsi_id')
+
+    for wsi_id, group_df in grouped:
+        wsi_result = {'wsi_id': wsi_id}
+
+        # 1. 获取当前WSI的面积信息
+        try:
+            tissue_area = area_df.loc[area_df['wsi_id'] == wsi_id, 'tissue_area'].iloc[0]
+        except IndexError:
+            print(f"警告: WSI {wsi_id} 在 area_df 中无面积信息，跳过ANN Index计算。")
+            tissue_area = 0
+
+        # 2. 为这个WSI计算每种指定对象的ANN Index
+        for obj_type in process_list:
+            feature_name = f"ANN_Index_{obj_type}"
+
+            # 提取这个WSI上特定对象类型的坐标点
+            points_df = group_df[group_df['object_type'] == obj_type]
+            points = points_df[['topology_x', 'topology_y']].values
+            n_points = len(points)
+
+            # ANN Index 需要至少2个点和正面积
+            if n_points < 2 or tissue_area <= 0:
+                wsi_result[feature_name] = np.nan
+                continue
+
+            # 3. 计算观测值 (Observed ANN)
+            # (调用您现有的辅助函数)
+            observed_ann = _calculate_ann(points)
+
+            # 4. 计算预期值 (Expected ANN for CSR)
+            # 密度 (lambda)
+            lambda_density = n_points / tissue_area
+
+            # 预期最近邻距离
+            expected_ann = 1.0 / (2.0 * np.sqrt(lambda_density))
+
+            # 5. 计算 Clark-Evans Index
+            if expected_ann > 0:
+                ann_index = observed_ann / expected_ann
+            else:
+                ann_index = np.nan
+
+            wsi_result[feature_name] = ann_index
+
+        results_list.append(wsi_result)
+
+    if not results_list:
+        return pd.DataFrame()
+
+    return pd.DataFrame(results_list)
+
+
+
 
 def calculate_ann_features(grouped, object_types_to_analyze,wsi_ids):
 
@@ -1857,10 +1931,11 @@ if __name__ == '__main__':
 
         ann_feature_df = calculate_ann_features(grouped, objects_to_process,wsi_ids)
 
-
         # get the tissue area
 
         area_df=get_tissue_area(combined_df)
+
+        ann_index_feature_df = calculate_ann_index_features(combined_df, area_df, objects_to_process)
 
         # begin to add code of intensity
         density_feature_df = calculate_global_density(combined_df, area_df, objects_to_process)
@@ -1901,7 +1976,7 @@ if __name__ == '__main__':
 
 
 
-        features_to_merge = [ann_feature_df, tubules_K_feature, tubules_g_feature,density_feature_df,centrography_feature_df,density_stats_df,tubules_gest_feature,tubules_fest_feature,tubules_jest_feature]
+        features_to_merge = [ann_index_feature_df,ann_feature_df, tubules_K_feature, tubules_g_feature,density_feature_df,centrography_feature_df,density_stats_df,tubules_gest_feature,tubules_fest_feature,tubules_jest_feature]
         # 过滤掉空的DataFrame
         features_to_merge = [df for df in features_to_merge if not df.empty]
 
