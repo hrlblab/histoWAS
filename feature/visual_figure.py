@@ -95,6 +95,81 @@ def get_dbscan_clusters_and_hulls(points):
 # --- 新增的四个可视化分析函数 ---
 def plot_kernel_density(ax, cluster_data, hull_object, scale_factor, title):
     """
+    1. 组织内特征的强度/密度分布图 (KDE) - R/spatstat后端，最终闭合多边形修正版
+    """
+    print("      使用 R/spatstat 后端计算带有边缘校正的 KDE...")
+
+    points_original = cluster_data
+    hull_vertices_original = hull_object.points[hull_object.vertices]
+
+    # --- 核心修改在这里 ---
+    # 1. 闭合多边形：将第一个顶点追加到末尾
+    first_vertex = hull_vertices_original[0, :].reshape(1, -1)
+    closed_hull_vertices = np.vstack([hull_vertices_original, first_vertex])
+
+    try:
+        with localconverter(ro.default_converter + pandas2ri.converter + numpy2ri.converter):
+            # 2. 将闭合后的顶点数据传递给R
+            r.assign("points_x_r", points_original[:, 0])
+            r.assign("points_y_r", points_original[:, 1])
+            r.assign("hull_vertices_x_r", closed_hull_vertices[:, 0])
+            r.assign("hull_vertices_y_r", closed_hull_vertices[:, 1])
+
+            # R脚本
+            r_script = """
+            # 使用嵌套列表结构，并传入闭合的多边形顶点
+            win <- owin(poly=list(list(x=hull_vertices_x_r, y=hull_vertices_y_r)))
+
+            # 检查窗口是否有效，如果无效则回退到矩形边界框
+            if (!is.owin(win) || area.owin(win) == 0) {
+                win <- owin(xrange=range(hull_vertices_x_r), yrange=range(hull_vertices_y_r))
+            }
+
+            ppp_obj <- ppp(x=points_x_r, y=points_y_r, window=win)
+
+            # 自动选择一个合理的平滑带宽 (sigma)
+            sigma <- min(diff(ppp_obj$window$xrange), diff(ppp_obj$window$yrange))/10
+            kde_result <- density(ppp_obj, sigma=sigma, edge=TRUE, correction="iso")
+
+            as.matrix(kde_result)
+            """
+
+            kde_matrix = r(r_script)
+
+            kde_result_r = r('kde_result')
+            xrange = kde_result_r.rx2('xrange')
+            yrange = kde_result_r.rx2('yrange')
+
+            kde_matrix_py = np.array(kde_matrix).T
+
+            extent_scaled = [
+                xrange[0] / scale_factor, xrange[1] / scale_factor,
+                yrange[0] / scale_factor, yrange[1] / scale_factor
+            ]
+
+        im = ax.imshow(kde_matrix_py, cmap='viridis',
+                       extent=extent_scaled,
+                       origin='lower', aspect='equal')
+
+        hull_vertices_scaled = hull_object.points[hull_object.vertices] / scale_factor
+        hull_path = Path(hull_vertices_scaled)
+        patch = PathPatch(hull_path, facecolor='none', transform=ax.transData)
+        ax.add_patch(patch)
+        im.set_clip_path(patch)
+
+        ax.set_title(title, fontsize=20, pad=20)
+        ax.set_aspect('equal', adjustable='box')
+        print("      边缘校正的 KDE 计算和绘图完成。")
+
+    except Exception as e:
+        error_text = f"Edge-corrected KDE failed:\n{e}"
+        ax.text(0.5, 0.5, error_text, ha='center', va='center', color='red', transform=ax.transAxes, fontsize=8)
+        print(f"错误: 边缘校正的 KDE 失败: {e}")
+
+
+
+def plot_kernel_density_old(ax, cluster_data, hull_object, scale_factor, title):
+    """
     1. 组织内特征的强度/密度分布图 (Kernel Density Estimation) - 使用Scipy
     """
     points_scaled = cluster_data / scale_factor
