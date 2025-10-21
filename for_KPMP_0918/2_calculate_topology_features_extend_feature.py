@@ -1827,6 +1827,226 @@ def calculate_ann_features(grouped, object_types_to_analyze,wsi_ids):
 
     return final_df
 
+# 开始非齐次函数：
+def calculate_Kinhom_features_r_backend(area_df: pd.DataFrame,
+                                        combined_df: pd.DataFrame,
+                                        process_list: list,
+                                        distance_list: list,
+                                        if_L: bool = True) -> pd.DataFrame:
+    """
+    [R后端版] 计算非齐次 K-function (Kinhom) 和 L-function (Linhom)。
+
+    此函数通过首先从数据本身估计强度 lambda (使用 density.ppp + bw.ppl)，
+    然后将 lambda 传递给 Kinhom 来校正一阶效应（非均匀密度）。
+    """
+    if not isinstance(process_list, list) or len(process_list) != 2:
+        raise ValueError("process_list必须是一个包含两个字符串的列表。")
+
+    object_type_1 = process_list[0]
+    object_type_2 = process_list[1]
+    is_univariate = (object_type_1 == object_type_2)
+
+    # Kinhom 目前主要用于单变量分析
+    if not is_univariate:
+        print(f"警告: Kinhom 目前主要支持单变量分析 (e.g., ['A', 'A'])。")
+        print(f"跳过 {object_type_1}_{object_type_2} 的 Kinhom 计算。")
+        return pd.DataFrame()
+
+    results_list = []
+
+    for wsi_id, group_df in combined_df.groupby('wsi_id'):
+
+        feature_prefix = f"{object_type_1}_{object_type_2}"
+        wsi_result = {'wsi_id': wsi_id}
+
+        default_features = {}
+        for d in distance_list:
+            default_features[f"{feature_prefix}_distance_{d}_Kinhom_function"] = np.nan
+            if if_L:
+                default_features[f"{feature_prefix}_distance_{d}_Linhom_function"] = np.nan
+
+        # 使用上下文管理器
+        with localconverter(ro.default_converter + pandas2ri.converter + numpy2ri.converter):
+            try:
+                area_info = area_df.loc[area_df['wsi_id'] == wsi_id]
+                if area_info.empty:
+                    print(f"警告: 在 area_df 中未找到 wsi_id '{wsi_id}' 的面积信息，已跳过。")
+                    continue
+
+                # 1. 准备 ppp 对象 (仅使用 'from' 类型)
+                points_df = group_df[group_df['object_type'] == object_type_1]
+                n_points = len(points_df)
+
+                if n_points < 10:  # Kinhom/bw.ppl 需要较多的点
+                    print(f"警告: wsi_id '{wsi_id}' 中 '{object_type_1}' 的点数 ({n_points}) 不足10，跳过Kinhom。")
+                    wsi_result.update(default_features)
+                    results_list.append(wsi_result)
+                    continue
+
+                x_min, x_max = group_df['topology_x'].min(), group_df['topology_x'].max()
+                y_min, y_max = group_df['topology_y'].min(), group_df['topology_y'].max()
+
+                r.assign("points_x_r", points_df['topology_x'].values)
+                r.assign("points_y_r", points_df['topology_y'].values)
+                r.assign("x_min_r", x_min)
+                r.assign("x_max_r", x_max)
+                r.assign("y_min_r", y_min)
+                r.assign("y_max_r", y_max)
+
+                # 2. R 脚本：估计lambda，然后调用Kinhom
+                r_script = """
+                win <- owin(xrange=c(x_min_r, x_max_r), yrange=c(y_min_r, y_max_r))
+                ppp_obj <- ppp(x=points_x_r, y=points_y_r, window=win)
+
+                # 步骤 1: 估计非齐次的强度 lambda
+                # (如果bw.ppl失败，则回退到简单的带宽)
+                sigma <- tryCatch({
+                  bw.ppl(ppp_obj)
+                }, error = function(e) {
+                  (x_max_r - x_min_r) / 8
+                })
+                lambda <- density(ppp_obj, sigma=sigma)
+
+                # 步骤 2: 调用 Kinhom
+                K_result <- Kinhom(ppp_obj, lambda, correction="iso")
+                K_result
+                """
+                k_result_r = r(r_script)
+
+                # 3. 提取数据
+                r_distances = k_result_r['r']
+                r_k_values = k_result_r['iso']
+                r_k_theo = k_result_r['theo']  # 理论值 (pi*r^2)
+
+                k_values_at_distances = np.interp(distance_list, r_distances, r_k_values)
+                k_theo_at_distances = np.interp(distance_list, r_distances, r_k_theo)
+
+                if if_L:
+                    # L_inhom(r) = sqrt(K_inhom(r) / pi)
+                    k_for_l_calc = np.maximum(0, k_values_at_distances)
+                    l_values_at_distances = np.sqrt(k_for_l_calc / np.pi)
+
+                    # 关键：Linhom 应该与 r (L_theo) 比较, 而不是 0
+                    l_theo_at_distances = np.sqrt(k_theo_at_distances / np.pi)
+                    # 我们存储 "中心化" 的 L-function
+                    l_centered_values = l_values_at_distances - l_theo_at_distances
+
+                # 4. 循环填充结果
+                for i, d in enumerate(distance_list):
+                    wsi_result[f"{feature_prefix}_distance_{d}_Kinhom_function"] = k_values_at_distances[i]
+                    if if_L:
+                        wsi_result[f"{feature_prefix}_distance_{d}_Linhom_function"] = l_centered_values[i]
+
+                results_list.append(wsi_result)
+
+            except Exception as e:
+                print(f"处理 wsi_id '{wsi_id}' 时发生未知错误: {e}")
+                wsi_result.update(default_features)
+                results_list.append(wsi_result)
+
+    if not results_list:
+        return pd.DataFrame()
+
+    return pd.DataFrame(results_list)
+
+
+def calculate_ginhom_features_r_backend(area_df: pd.DataFrame,
+                                        combined_df: pd.DataFrame,
+                                        process_list: list,
+                                        distance_list: list) -> pd.DataFrame:
+    """
+    [R后端版] 计算非齐次 g-function (pcfinhom)。
+
+    此函数通过首先从数据本身估计强度 lambda (使用 density.ppp + bw.ppl)，
+    然后将 lambda 传递给 pcfinhom 来校正一阶效应。
+    """
+    if not isinstance(process_list, list) or len(process_list) != 2:
+        raise ValueError("process_list必须是一个包含两个字符串的列表。")
+
+    object_type_1 = process_list[0]
+    object_type_2 = process_list[1]
+    is_univariate = (object_type_1 == object_type_2)
+
+    if not is_univariate:
+        print(f"警告: pcfinhom 目前主要支持单变量分析 (e.g., ['A', 'A'])。")
+        print(f"跳过 {object_type_1}_{object_type_2} 的 pcfinhom 计算。")
+        return pd.DataFrame()
+
+    results_list = []
+
+    for wsi_id, group_df in combined_df.groupby('wsi_id'):
+
+        feature_prefix = f"{object_type_1}_{object_type_2}"
+        wsi_result = {'wsi_id': wsi_id}
+
+        default_features = {}
+        for d in distance_list:
+            default_features[f"{feature_prefix}_distance_{d}_ginhom_function"] = np.nan
+
+        with localconverter(ro.default_converter + pandas2ri.converter + numpy2ri.converter):
+            try:
+                area_info = area_df.loc[area_df['wsi_id'] == wsi_id]
+                if area_info.empty:
+                    print(f"警告: 在 area_df 中未找到 wsi_id '{wsi_id}' 的面积信息，已跳过。")
+                    continue
+
+                points_df = group_df[group_df['object_type'] == object_type_1]
+                n_points = len(points_df)
+
+                if n_points < 10:
+                    print(f"警告: wsi_id '{wsi_id}' 中 '{object_type_1}' 的点数 ({n_points}) 不足10，跳过pcfinhom。")
+                    wsi_result.update(default_features)
+                    results_list.append(wsi_result)
+                    continue
+
+                x_min, x_max = group_df['topology_x'].min(), group_df['topology_x'].max()
+                y_min, y_max = group_df['topology_y'].min(), group_df['topology_y'].max()
+
+                r.assign("points_x_r", points_df['topology_x'].values)
+                r.assign("points_y_r", points_df['topology_y'].values)
+                r.assign("x_min_r", x_min)
+                r.assign("x_max_r", x_max)
+                r.assign("y_min_r", y_min)
+                r.assign("y_max_r", y_max)
+
+                r_script = """
+                win <- owin(xrange=c(x_min_r, x_max_r), yrange=c(y_min_r, y_max_r))
+                ppp_obj <- ppp(x=points_x_r, y=points_y_r, window=win)
+
+                sigma <- tryCatch({
+                  bw.ppl(ppp_obj)
+                }, error = function(e) {
+                  (x_max_r - x_min_r) / 8
+                })
+                lambda <- density(ppp_obj, sigma=sigma)
+
+                # 调用 pcfinhom
+                g_result <- pcfinhom(ppp_obj, lambda, correction="iso")
+                g_result
+                """
+                g_result_r = r(r_script)
+
+                r_distances = g_result_r['r']
+                r_g_values = g_result_r['iso']
+
+                g_values_at_distances = np.interp(distance_list, r_distances, r_g_values, left=np.nan, right=np.nan)
+
+                for i, d in enumerate(distance_list):
+                    wsi_result[f"{feature_prefix}_distance_{d}_ginhom_function"] = g_values_at_distances[i]
+
+                results_list.append(wsi_result)
+
+            except Exception as e:
+                print(f"处理 wsi_id '{wsi_id}' 时发生未知错误: {e}")
+                wsi_result.update(default_features)
+                results_list.append(wsi_result)
+
+    if not results_list:
+        return pd.DataFrame()
+
+    return pd.DataFrame(results_list)
+
+
 
 
 if __name__ == '__main__':
@@ -1974,9 +2194,19 @@ if __name__ == '__main__':
                                                                  [100, 200, 300, 400])
         # --- 新增代码结束 ---
 
+        # 单变量 Kinhom / Linhom
+        tubules_Kinhom_feature = calculate_Kinhom_features_r_backend(area_df, combined_df.copy(),
+                                                                     ["tubules", "tubules"],
+                                                                     [100, 200, 300, 400])
+
+        # 单变量 g_inhom (pcfinhom)
+        tubules_ginhom_feature = calculate_ginhom_features_r_backend(area_df, combined_df.copy(),
+                                                                     ["tubules", "tubules"],
+                                                                     [100, 200, 300, 400])
 
 
-        features_to_merge = [ann_index_feature_df,ann_feature_df, tubules_K_feature, tubules_g_feature,density_feature_df,centrography_feature_df,density_stats_df,tubules_gest_feature,tubules_fest_feature,tubules_jest_feature]
+
+        features_to_merge = [tubules_Kinhom_feature,tubules_ginhom_feature,ann_index_feature_df,ann_feature_df, tubules_K_feature, tubules_g_feature,density_feature_df,centrography_feature_df,density_stats_df,tubules_gest_feature,tubules_fest_feature,tubules_jest_feature]
         # 过滤掉空的DataFrame
         features_to_merge = [df for df in features_to_merge if not df.empty]
 
