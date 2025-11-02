@@ -319,6 +319,149 @@ def plot_l_function(ax, cluster_data, hull_object, title):
         print(f"错误: L-function 计算失败: {e}")
 
 
+# 假设您在脚本的顶部定义了这两个常量
+# PIXEL_SIZE = 50
+# SIGMA = 200
+
+def plot_kernel_density_comparison(axes, points_data, window_hull, scale_factor, overall_title, PIXEL_SIZE, SIGMA):
+    """
+    生成三张核密度估计 (KDE) 对比图：无校正、均匀校正和 Diggle 校正。
+
+    参数:
+    - axes: 包含三个 Matplotlib Axes 对象的数组（例如 axes[0], axes[1], axes[2]）。
+    - points_data: numpy 数组，包含点模式的坐标 (x, y)。
+    - window_hull: scipy.spatial.ConvexHull 对象，定义观测窗口的边界。
+    - scale_factor: 用于坐标缩放的因子。
+    - overall_title: 整个图表的标题。
+    - PIXEL_SIZE: 密度图的像素大小 (eps)。
+    - SIGMA: 核密度估计的带宽 (sigma)。
+    """
+
+    print("  正在创建 R ppp 对象...")
+
+    # 1. 转换窗口边界为 R 的 owin 多边形
+    # 将点的坐标转换为R向量
+    with localconverter(ro.default_converter + numpy2ri.converter):
+        x_coords = ro.FloatVector(points_data[:, 0])
+        y_coords = ro.FloatVector(points_data[:, 1])
+
+        # 创建R多边形窗口
+        hull_vertices = window_hull.points[window_hull.vertices]
+
+        # 确保所有数据都在 localconverter 块内转换为 R 对象
+        with localconverter(ro.default_converter + numpy2ri.converter):
+            # 将点的坐标转换为R向量
+            x_coords = ro.FloatVector(points_data[:, 0])
+            y_coords = ro.FloatVector(points_data[:, 1])
+
+            # 提取并转换为 R 向量
+            window_x = ro.FloatVector(hull_vertices[:, 0])
+            window_y = ro.FloatVector(hull_vertices[:, 1])
+
+            # 直接调用 R 函数创建 owin 对象
+            # 注意：为了确保 rpy2 正确处理，我们使用 r.list 创建一个 R list 对象
+            # 并将其传递给 owin 的 poly 参数。
+            # 也可以直接用 spatstat_geom.owin(poly=ro.ListVector({'x': window_x, 'y': window_y}))
+
+            # 推荐使用这种更显式的方法来创建 R list
+            r_poly_list = ro.r.list(x=window_x, y=window_y)
+
+            # 创建R多边形窗口，r_window 应该现在是正确的 'owin' 对象
+            r_window = spatstat_geom.owin(poly=r_poly_list)
+
+            # 创建R点模式对象 (现在 window 参数应该是正确的 'owin' 对象)
+            ppp_obj = spatstat_geom.ppp(x_coords, y_coords, window=r_window)
+
+    # R的参数
+    sigma_r = ro.r.c(SIGMA)
+    pixel_size_r = ro.r.c(PIXEL_SIZE)
+
+    # 定义三种密度计算方法
+    methods = [
+        ('none', "1. Raw KDE (No Correction)"),  # 对应于 $\hat{\lambda}(u)$
+        ('translate', "2. Uniform Correction (Diggle's Formula 6.8)"),  # 对应于 $\hat{\lambda}^{(U)}(u)$
+        ('diggle', "3. Diggle's Correction (Formula 6.9)")  # 对应于 $\hat{\lambda}^{(D)}(u)$
+    ]
+
+    density_data_list = []
+
+    # 2. 循环计算三种密度
+    for method, _ in methods:
+        print(f"  - 正在计算 {method} 校正的密度...")
+        # 调用 R 的 density.ppp 函数，明确指定 method 参数
+        # 使用 r.assign() 传入 Python 变量，避免字符串格式化
+        ro.r.assign("ppp_obj_r", ppp_obj)
+        ro.r.assign("sigma_r_val", sigma_r)
+        ro.r.assign("pixel_size_r_val", pixel_size_r)
+
+        # R代码执行
+        r_code = f"""
+        D <- spatstat_explore::density.ppp(
+            ppp_obj_r, 
+            sigma=sigma_r_val, 
+            method='{method}', 
+            eps=c(pixel_size_r_val, pixel_size_r_val)
+        )
+        """
+        ro.r(r_code)
+
+        # 3. 转换 R 的 im 对象为 numpy 数组
+        # 'im' 对象是 $spatstat$ 的图像对象，包含值和坐标信息
+        im_obj = ro.r['D']
+        # 提取 im 对象的矩阵数据
+        with localconverter(ro.default_converter + numpy2ri.converter):
+            density_matrix = np.array(im_obj).T  # 需要转置以匹配Matplotlib的坐标系
+            density_data_list.append(density_matrix)
+
+    # 4. 统一颜色比例 (Color Scaling)
+    # 为了对比的公平性，我们使用所有图的最大密度值来统一颜色条。
+    vmax = max(np.max(data) for data in density_data_list)
+
+    # 5. 循环绘图
+    for i, (method, plot_title) in enumerate(methods):
+        ax = axes[i]
+        density_matrix = density_data_list[i]
+
+        # 获取坐标范围
+        # R 'im' 对象的 x/y 范围
+        xrange = np.array(ro.r['D'].rx2('xrange'))
+        yrange = np.array(ro.r['D'].rx2('yrange'))
+
+        # 绘制密度图
+        im = ax.imshow(density_matrix,
+                       cmap='viridis',
+                       origin='lower',  # 确保与 R 'im' 对象的原点一致
+                       extent=[xrange[0] / scale_factor, xrange[1] / scale_factor,
+                               yrange[0] / scale_factor, yrange[1] / scale_factor],
+                       vmax=vmax)  # 使用统一的最大值
+
+        # 绘制窗口边界（Convex Hull）
+        hull_v_scaled = window_hull.points[window_hull.vertices] / scale_factor
+        polygon = Polygon(hull_v_scaled, closed=True, fill=False, edgecolor='red', linewidth=2, linestyle='--')
+        ax.add_patch(polygon)
+
+        # 添加颜色条
+        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label('KDE Intensity $\\hat{\\lambda}(u)$', rotation=270, labelpad=15)
+
+        # 设置标题和轴
+        ax.set_title(plot_title, fontsize=12)
+        ax.set_xlabel('X Coordinate / $\\mu m$')
+        ax.set_ylabel('Y Coordinate / $\\mu m$')
+
+        # 调整坐标轴范围
+        xmin, ymin = hull_v_scaled.min(axis=0)
+        xmax, ymax = hull_v_scaled.max(axis=0)
+        padding = 50 / scale_factor  # 保持与原代码的padding一致
+        ax.set_xlim(xmin - padding, xmax + padding)
+        ax.set_ylim(ymax + padding, ymin - padding)  # 注意 Matplotlib 图像的 y 轴反转
+
+    # 添加一个总标题
+    plt.suptitle(overall_title, fontsize=16)
+
+
+
+
 def plot_interpolation(ax, cluster_data_df, hull_object, scale_factor, title, covariate_name):
     """
     4. 创建连续的生物特征表面 (Spatial Interpolation)
@@ -470,5 +613,30 @@ if __name__ == '__main__':
         plt.savefig(output_filename, dpi=150, bbox_inches='tight')
         plt.close(fig)
         print(f"Cluster {label} 的分析图已保存至: {output_filename}")
+
+        # --- 调整图表大小和布局 (1x3) ---
+        fig, axes = plt.subplots(1, 3, figsize=(24, 8))  # 1行3列
+        plt.style.use('default')
+        fig.tight_layout(pad=3.0)  # 调整子图间距
+
+        PIXEL_SIZE = 50
+        SIGMA = 200
+        # --- 调用新的对比函数 ---
+        print("  1. 生成核密度对比图...")
+        # 传入三个 Axes 对象组成的数组
+        plot_kernel_density_comparison(axes,
+                                       tubules_points_original,
+                                       tubules_hull,
+                                       scale_factor,
+                                       f"Comparison of Kernel Density Estimators for Cluster {label}",
+                                       # 假设您有一个 cluster_id
+                                       PIXEL_SIZE,
+                                       SIGMA)
+
+        # --- 保存图像 ---
+        output_filename = os.path.join(output_dir, f"cluster_{label}_kde_comparison.png")
+        fig.savefig(output_filename, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        print(f"对比图已保存到: {output_filename}")
 
     print("\n所有分析完成！")
