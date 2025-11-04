@@ -74,13 +74,13 @@ def plot_manhattan_feature_categorized(regressions, *, thresh, show_num=None, sa
         plt.show()
 
 
-
-# --- 2. 最终修正版 - 效应量图 ---
+# --- 2. 最终修正版 (已修改) ---
 def plot_effect_size_feature_categorized(regressions, *, thresh, save='', save_format='png'):
     """
-    绘制带分类的特征效应量图，保持原始图表样式。
-    - Pathomics: 原始颜色(aqua)圆点
-    - Spatial: 新颜色(vermillion)方块
+    绘制带分类的特征效应量图（修改版）。
+    - 解决了文字重叠问题。
+    - 增加了特征间的垂直间距。
+    - 将特征名称移到了置信区间线的正上方。
     """
     sig_df = regressions[regressions["p-val"] < thresh].copy()
     if sig_df.empty:
@@ -103,38 +103,71 @@ def plot_effect_size_feature_categorized(regressions, *, thresh, save='', save_f
     sig_df.sort_values(by="beta", inplace=True)
     sig_df.reset_index(drop=True, inplace=True)
 
-    fig, ax = plt.subplots(figsize=(8, 6)) # 保持原始尺寸
-    y_coord = 1
-    text_size = 6
+    # --- 修改点 开始 ---
 
-    # 定义颜色和形状映射，Pathomics使用原始颜色
+    # 1. 动态调整图表高度，以容纳所有特征
+    # 假设每个特征需要0.4英寸的高度，再加上2英寸的边距
+    num_features = len(sig_df)
+    # 确保图表有最小高度，同时也随特征数量增长
+    fig_height = max(6, 2 + num_features * 0.4)
+    fig, ax = plt.subplots(figsize=(8, fig_height))  # 保持宽度8，高度动态
+
+    text_size = 8  # 稍微增大了字体 (原为 6)
+    spacing = 1.5  # 关键：控制每个特征之间的垂直间距
+    text_y_offset = 0.15  # 文本在线条上方的偏移量
+
+    # --- 修改点 结束 ---
+
+    # 定义颜色和形状映射
     palette = {'Pathomics': 'blue', 'Spatial': 'red'}
     markers = {'Pathomics': 'o', 'Spatial': 's'}
 
-    for _, row in sig_df.iterrows():
+    # 2. 使用索引作为y轴坐标，更易于控制
+    for idx, row in sig_df.iterrows():
+        # y_coord 现在基于索引和间距
+        y_coord = idx * spacing + 1
+
         category = row["Category"]
         beta_val = row["beta"]
         color = palette.get(category, 'gray')
         marker = markers.get(category, 'x')
 
         # 绘制置信区间和数据点
-        ax.plot([row["lower"], row["upper"]], [y_coord, y_coord], color=color)
-        ax.plot(beta_val, y_coord, marker=marker, color=color, fillstyle='full', markeredgewidth=0)
+        ax.plot([row["lower"], row["upper"]], [y_coord, y_coord], color=color, linewidth=2)  # 稍微加粗线条
+        ax.plot(beta_val, y_coord, marker=marker, color=color, fillstyle='full', markeredgewidth=0,
+                markersize=7)  # 稍微增大标记
 
-        ha = 'left' if beta_val > 0 else 'right'
-        ax.text(beta_val, y_coord, row["Feature"], ha=ha, va='center', fontsize=text_size)
-        y_coord += 15
+        # --- 修改点 开始 ---
+        # 3. 将文本放置在线条正上方
+        ax.text(
+            beta_val,  # X 坐标: beta值 (自动居中)
+            y_coord + text_y_offset,  # Y 坐标: 线条上方一点
+            row["Feature"],  # 文本内容
+            ha='center',  # 水平对齐: 居中
+            va='bottom',  # 垂直对齐: 底部 (使文本在y坐标之上)
+            fontsize=text_size
+        )
+        # --- 修改点 结束 ---
 
     # 手动创建图例
     legend_handles = [
-        mlines.Line2D([], [], color=palette['Pathomics'], marker=markers['Pathomics'], linestyle='None', label='Pathomics'),
-        mlines.Line2D([], [], color=palette['Spatial'], marker=markers['Spatial'], linestyle='None', label='Spatial')
+        mlines.Line2D([], [], color=palette['Pathomics'], marker=markers['Pathomics'], linestyle='None',
+                      label='Pathomics', markersize=7),
+        mlines.Line2D([], [], color=palette['Spatial'], marker=markers['Spatial'], linestyle='None', label='Spatial',
+                      markersize=7)
     ]
     ax.legend(handles=legend_handles, title="Feature Category")
 
     ax.axvline(x=0, color='black', linestyle='--')
     ax.set_xlabel("Beta (Effect Size)")
+
+    # --- 修改点 开始 ---
+    # 隐藏y轴刻度，并设置范围以提供上下边距
     ax.set_yticks([])
+    ax.set_yticklabels([])
+    ax.set_ylim(0, (num_features - 1) * spacing + 2)  # 设置Y轴范围，顶部留出空间
+    # --- 修改点 结束 ---
+
     ax.set_title("Effect Size Plot (Significant Features)")
     plt.tight_layout()
 
@@ -143,6 +176,8 @@ def plot_effect_size_feature_categorized(regressions, *, thresh, save='', save_f
         plt.close()
     else:
         plt.show()
+
+
 
 # --- 3. 最终修正版 - 火山图 ---
 def plot_volcano_feature_categorized(regressions, *, p_thresh=0.05, save='', save_format='png'):

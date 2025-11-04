@@ -89,10 +89,10 @@ plot_manhattan_feature_categorized(regressions_df,
 # 调用新的 plot_effect_size_with_categories
 plot_effect_size_feature_categorized(regressions_df,
                                  thresh=threshold_value,
-                                 save="result/EffectSize_demo_topology_category_final_eGFR.png",
+                                 save="result/EffectSize_demo_topology_category_final_eGFR_new.png",
                                  save_format="png")
 
 # 调用新的 plot_volcano_with_categories
 plot_volcano_feature_categorized(regressions_df,
-                             save="result/Volcano_demo_topology_category_final_eGFR.png",
+                             save="result/Volcano_demo_topology_category_final_eGFR_new.png",
                              save_format="png")
