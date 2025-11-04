@@ -2,11 +2,10 @@ import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import numpy as np
 import math
-import pandas as pd
 
 
 # --- 1. 最终修正版 - 曼哈顿图 (已添加排序功能) ---
-def plot_manhattan_feature_categorized(regressions, *, thresh, show_num=None, save='', save_format='png'):
+def plot_manhattan_feature_categorized(regressions, *, thresh, save='', save_format='png'):
     """
     绘制带分类的特征曼哈顿图，并按显著性从高到低排序。
     - Pathomics: 蓝色圆点
@@ -16,19 +15,6 @@ def plot_manhattan_feature_categorized(regressions, *, thresh, show_num=None, sa
 
     # 复制DataFrame以避免修改原始数据
     regressions_sorted = regressions.copy()
-
-    if show_num is not None:
-        # 1. 找出所有显著的特征 (p-val < thresh)
-        sig_df = regressions_sorted[regressions_sorted["p-val"] < thresh]
-
-        # 2. 找出所有非显著的特征 (p-val >= thresh)
-        non_sig_df = regressions_sorted[regressions_sorted["p-val"] >= thresh]
-
-        # 3. 对非显著特征按 "-log(p)" 降序排序，并取出前 show_num 个
-        top_non_sig_df = non_sig_df.nlargest(show_num, columns='"-log(p)"')
-
-        # 4. 合并显著特征和Top-N非显著特征
-        regressions_sorted = pd.concat([sig_df, top_non_sig_df])
 
     # <--- 新增代码: 按 "-log(p)" 列降序排序 ---
     regressions_sorted.sort_values(by='"-log(p)"', ascending=False, inplace=True)

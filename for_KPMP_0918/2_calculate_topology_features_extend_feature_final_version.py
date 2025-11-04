@@ -1544,8 +1544,8 @@ def calculate_ann_features(grouped, object_types_to_analyze, wsi_ids):
 
 if __name__ == '__main__':
 
-    input_data_path = "/media/yangy50/Elements/KPMP_new/concate_csv_topology/"
-    result_path = "/media/yangy50/Elements/KPMP_new/topology_feature.csv"
+    input_data_path = "/home/yangy50/project/pywasphe/PyWasPhe/result/concate_csv_topology/"
+    result_path = "/home/yangy50/project/pywasphe/PyWasPhe/topology_feature_final.csv"
 
     filename_map = {
 
